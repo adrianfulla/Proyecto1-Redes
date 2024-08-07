@@ -1,21 +1,14 @@
 version: '3.8'
 
 services:
-  server:
+  app:
     build:
       context: ./
-      dockerfile: Dockerfiles/server/Dockerfile
+      dockerfile: Dockerfiles//Dockerfile
     ports:
       - "3000:3000"
+      - "8080:80"
     volumes:
       - ./:/app
-    # command: go run main.go
 
-  # frontend:
-  #   build:
-  #     context: ./
-  #     dockerfile: Dockerfiles/frontend/Dockerfile
-  #   ports:
-  #     - "808:80"
-  #   volumes:
-  #     - ./frontend:/app/frontend
+

@@ -3,7 +3,7 @@
 FROM golang:latest
 
 # Set destination for COPY
-WORKDIR /app/server
+WORKDIR /app/
 
 # Download Go modules
 # COPY go.mod go.sum ./
@@ -27,5 +27,5 @@ EXPOSE 3000
 
 # Run
 # CMD ["/docker-gs-ping"]
-CMD ["go", "run", "server.go"]
+CMD ["go", "run", "server/server.go"]
 

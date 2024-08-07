@@ -34,10 +34,11 @@ export default {
   methods: {
     makeWebsiteThumbnail() {
       // Call the Go API, in this case we only need the URL parameter.
-      axios.post("http://localhost:3000/api/thumbnail", {
+      axios.post("/api/thumbnail", {
         url: this.websiteUrl,
       })
       .then((response) => {
+        console.log(response)
         this.thumbnailUrl = response.data.screenshot;
       })
       .catch((error) => {

@@ -1,11 +1,14 @@
 
 # Fase de construcción
 FROM node:16 as build-stage
-WORKDIR /app/frontend
-COPY package*.json ./
+COPY frontend/package*.json ./
+
+RUN npm cache clean --force
 RUN npm install
 COPY . .
-RUN npm run build
+RUN npm run serve
+
+
 
 # Fase de producción
 FROM nginx:stable-alpine as production-stage

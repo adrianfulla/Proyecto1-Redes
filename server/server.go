@@ -12,7 +12,7 @@ func main() {
 
 	http.HandleFunc("/api/thumbnail", thumbnailHandler)
 
-	fs := http.FileServer(http.Dir("../frontend/dist"))
+	fs := http.FileServer(http.Dir("./frontend/dist"))
 
 	http.Handle("/", fs)
 
