@@ -2,21 +2,17 @@ package xmpp
 
 import (
     "log"
-    "os"
-    "os/signal"
-    "syscall"
-	"errors"
     "fmt"
+    "bufio"
 )
 
 type XMPPHandler struct {
+    Conn     *XMPPConnection
     Server   string
     Username string
     Password string
-    Conn     *XMPPConnection
 }
 
-// NewXMPPHandler creates and initializes an XMPPHandler
 func NewXMPPHandler(server, username, password string) (*XMPPHandler, error) {
     handler := &XMPPHandler{
         Server:   server,
@@ -30,134 +26,71 @@ func NewXMPPHandler(server, username, password string) (*XMPPHandler, error) {
     }
     handler.Conn = conn
 
-    if err := handler.startStream(); err != nil {
+    if err := handler.Conn.StartStream(""); err != nil {
         return nil, err
     }
 
-    if err := Authenticate(conn, username, password); err != nil {
+    // If the user does not exist, create it
+    if err := CreateUser(handler.Conn, username, password); err != nil {
+        log.Println("User creation failed or user already exists, proceeding with login...")
+    }
+
+    // Authenticate
+    if err := Authenticate(handler.Conn, username, password); err != nil {
         return nil, err
     }
 
     return handler, nil
 }
 
-// startStream initializes the XMPP stream for the handler
-func (xh *XMPPHandler) startStream() error {
-    return xh.Conn.StartStream(xh.Username)
-}
 
-// SendMessage sends a chat message to a specified recipient
-func (xh *XMPPHandler) SendMessage(to, body string) error {
-    message := NewMessage(to, "chat", body)
-    return xh.sendStanza(message)
-}
-
-// SendPresence sends a presence stanza (e.g., available, unavailable)
-func (xh *XMPPHandler) SendPresence(presenceType, status string) error {
-    presence := NewPresence("", presenceType, status, "", 0)
-    return xh.sendStanza(presence)
-}
-
-// SendIQ sends an IQ stanza
-func (xh *XMPPHandler) SendIQ(iqType, id string, query interface{}) error {
-    iq := NewIQ(iqType, id)
-    iq.SetQuery(query)
-    return xh.sendStanza(iq)
-}
-
-// sendStanza converts a stanza to XML and sends it over the connection
-func (xh *XMPPHandler) sendStanza(stanza Stanza) error {
-    xml, err := stanza.ToXML()
+// SendPresence sends a presence stanza to update the user's availability status.
+func (h *XMPPHandler) SendPresence(presenceType, status string) error {
+    presence := fmt.Sprintf(
+        `<presence><show>%s</show><status>%s</status></presence>`,
+        presenceType, status,
+    )
+    _, err := h.Conn.Conn.Write([]byte(presence))
     if err != nil {
+        log.Printf("Failed to send presence: %v", err)
         return err
     }
-    _, err = xh.Conn.Conn.Write([]byte(xml))
-    return err
+    log.Println("Presence sent successfully")
+    return nil
 }
 
-// HandleIncomingStanzas listens and processes incoming stanzas
-func (xh *XMPPHandler) HandleIncomingStanzas() {
-    go func() {
-        for {
-            buffer := make([]byte, 4096)
-            n, err := xh.Conn.Conn.Read(buffer)
-            if err != nil {
-                log.Printf("Error reading from connection: %v", err)
-                return
-            }
-
-            stanza := string(buffer[:n])
-            fmt.Printf("Received stanza: %s\n", stanza)
-
-            if iq, err := ParseIQ([]byte(stanza)); err == nil {
-                response, err := HandleIQ(iq)
-                if err != nil {
-                    log.Printf("Error handling IQ: %v", err)
-                } else if response != nil {
-                    xh.sendStanza(response)
-                }
-            } else if msg, err := ParseMessage([]byte(stanza)); err == nil {
-                fmt.Printf("Received message from %s: %s\n", msg.From, msg.Body)
-            } else if presence, err := ParsePresence([]byte(stanza)); err == nil {
-                fmt.Printf("Received presence from %s: %s\n", presence.From, presence.Status)
-            } else {
-                log.Printf("Unknown stanza received: %s", stanza)
-            }
-        }
-    }()
-}
-
-// WaitForShutdown handles graceful shutdowns on receiving a signal
-func (xh *XMPPHandler) WaitForShutdown() {
-    c := make(chan os.Signal, 1)
-    signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-
-    <-c
-    fmt.Println("Shutting down...")
-
-    xh.SendPresence("unavailable", "")
-
-    xh.Conn.CloseStream()
-    xh.Conn.Close()
-}
-
-
-// CreateUser attempts to create a new user on the XMPP server.
-func CreateUser(conn *XMPPConnection, username, password string) error {
-    // Create a registration request IQ stanza
-    iqID := "register1" // This should be unique for each request in a real application
-    register := RegisterRequest{
-        Username: username,
-        Password: password,
-    }
-    
-    iq := NewIQ("set", iqID)
-    iq.SetQuery(register)
-
-    // Send the registration request
-    if err := sendStanza(conn, iq); err != nil {
-        return fmt.Errorf("failed to send registration request: %v", err)
-    }
-
-    // Wait for the response
-    buffer := make([]byte, 4096)
-    n, err := conn.Conn.Read(buffer)
+// SendMessage sends a message stanza to the specified recipient.
+func (h *XMPPHandler) SendMessage(to, message string) error {
+    msg := fmt.Sprintf(
+        `<message to='%s' type='chat'><body>%s</body></message>`,
+        to, message,
+    )
+    _, err := h.Conn.Conn.Write([]byte(msg))
     if err != nil {
-        return fmt.Errorf("error reading registration response: %v", err)
+        log.Printf("Failed to send message: %v", err)
+        return err
     }
+    log.Println("Message sent successfully")
+    return nil
+}
 
-    // Parse the response
-    response := string(buffer[:n])
-    fmt.Printf("Received registration response: %s\n", response)
-
-    if iqResponse, err := ParseIQ([]byte(response)); err == nil {
-        if iqResponse.IsError() {
-            return errors.New("registration failed")
-        } else if iqResponse.IsResult() {
-            fmt.Println("Registration successful")
-            return nil
+// HandleIncomingStanzas listens for incoming stanzas and processes them.
+func (h *XMPPHandler) HandleIncomingStanzas() {
+    reader := bufio.NewReader(h.Conn.Conn)
+    for {
+        stanza, err := reader.ReadString('>')
+        if err != nil {
+            log.Printf("Failed to read stanza: %v", err)
+            return
         }
+        log.Printf("Received stanza: %s", stanza)
+        // Here you would parse and handle the stanza based on its type
     }
+}
 
-    return errors.New("unexpected registration response")
+// WaitForShutdown keeps the connection alive until shutdown is requested.
+func (h *XMPPHandler) WaitForShutdown() {
+    log.Println("Waiting for shutdown signal...")
+    // Implementation could wait on a signal or just block until interrupted
+    select {}
 }

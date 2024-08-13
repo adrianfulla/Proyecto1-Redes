@@ -5,6 +5,9 @@ import (
 	"net"
 	"time"
 	"fmt"
+	"log"
+	"errors"
+	"strings"
 )
 
 type XMPPConnection struct {
@@ -44,4 +47,47 @@ func NewXMPPConnection(address string, useTLS bool) (*XMPPConnection, error) {
 
 func (xc *XMPPConnection) Close() error {
     return xc.Conn.Close()
+}
+
+
+// StartTLS sends the STARTTLS command to the server and upgrades the connection to TLS.
+func StartTLS(conn *XMPPConnection) error {
+    startTLS := "<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>"
+    if _, err := conn.Conn.Write([]byte(startTLS)); err != nil {
+        return fmt.Errorf("failed to send STARTTLS: %v", err)
+    }
+
+    buffer := make([]byte, 4096)
+    n, err := conn.Conn.Read(buffer)
+    if err != nil {
+        return fmt.Errorf("failed to read STARTTLS response: %v", err)
+    }
+
+    response := string(buffer[:n])
+    log.Printf("Received STARTTLS response: %s\n", response)
+
+    if strings.Contains(response, "<proceed") {
+        log.Println("Proceeding with TLS handshake...")
+        tlsConn := tls.Client(conn.Conn, &tls.Config{
+            InsecureSkipVerify: true, // Disable verification for testing, not recommended for production
+        })
+        conn.Conn = tlsConn
+        if err := tlsConn.Handshake(); err != nil {
+            return fmt.Errorf("TLS handshake failed: %v", err)
+        }
+        log.Println("TLS handshake successful")
+        return nil
+    }
+
+    return errors.New("failed to initiate STARTTLS")
+}
+
+// sendStanza sends a stanza over the XMPP connection.
+func sendStanza(conn *XMPPConnection, stanza Stanza) error {
+    xml, err := stanza.ToXML()
+    if err != nil {
+        return fmt.Errorf("failed to marshal stanza to XML: %v", err)
+    }
+    _, err = conn.Conn.Write([]byte(xml))
+    return err
 }

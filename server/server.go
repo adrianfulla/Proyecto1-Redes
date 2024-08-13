@@ -27,15 +27,15 @@ func main() {
 
 	// MelliumTest()
 
-	// CreateUserTest()
-	LogInTest()
+	CreateUserTest()
+	// LogInTest()
 
 }
 
 func LogInTest(){
 	server := "alumchat.lol:5222"
     username := "aa-test4"
-    password := "12344445"
+    password := "12345"
 
     handler, err := xmpp.NewXMPPHandler(server, username, password)
     if err != nil {
@@ -66,7 +66,7 @@ func CreateUserTest(){
     }
 
     // Attempt to create a new user account
-    username := "aa-test3"
+    username := "aa-test11"
     password := "12345"
     err = xmpp.CreateUser(conn, username, password)
     if err != nil {
