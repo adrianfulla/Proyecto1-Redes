@@ -7,9 +7,6 @@ import (
     "syscall"
 	"errors"
     "fmt"
-    "encoding/xml"
-    "strings"
-    "crypto/tls"
 )
 
 type XMPPHandler struct {
@@ -127,30 +124,13 @@ func (xh *XMPPHandler) WaitForShutdown() {
 
 // CreateUser attempts to create a new user on the XMPP server.
 func CreateUser(conn *XMPPConnection, username, password string) error {
-    // Read and handle the initial <stream:features> response
-    buffer := make([]byte, 4096)
-    n, err := conn.Conn.Read(buffer)
-    if err != nil {
-        return fmt.Errorf("error reading initial response: %v", err)
-    }
-
-    initialResponse := string(buffer[:n])
-    log.Printf("Received initial response: %s\n", initialResponse)
-
-    if strings.Contains(initialResponse, "<stream:features>") {
-        log.Println("Stream features received, continuing with registration...")
-        // You can add specific logic here to handle features if needed
-    } else {
-        return errors.New("expected <stream:features> but did not receive it")
-    }
-
     // Create a registration request IQ stanza
     iqID := "register1" // This should be unique for each request in a real application
     register := RegisterRequest{
         Username: username,
         Password: password,
     }
-
+    
     iq := NewIQ("set", iqID)
     iq.SetQuery(register)
 
@@ -159,76 +139,25 @@ func CreateUser(conn *XMPPConnection, username, password string) error {
         return fmt.Errorf("failed to send registration request: %v", err)
     }
 
-    // Wait for the actual IQ response
-    n, err = conn.Conn.Read(buffer)
+    // Wait for the response
+    buffer := make([]byte, 4096)
+    n, err := conn.Conn.Read(buffer)
     if err != nil {
         return fmt.Errorf("error reading registration response: %v", err)
     }
 
+    // Parse the response
     response := string(buffer[:n])
-    log.Printf("Received registration response: %s\n", response)
+    fmt.Printf("Received registration response: %s\n", response)
 
-    iqResponse, err := ParseIQ([]byte(response))
-    if err != nil {
-        return fmt.Errorf("failed to parse IQ response: %v", err)
-    }
-
-    // Handle registration error (e.g., user already exists)
-    if iqResponse.IsError() {
-        if iqResponse.Type == "error" {
-            var iqError struct {
-                Code    int    `xml:"error>code,attr"`
-                Message string `xml:"error>text,omitempty"`
-                Type    string `xml:"error>conflict"`
-            }
-            if err := xml.Unmarshal(buffer[:n], &iqError); err != nil {
-                return fmt.Errorf("failed to unmarshal IQ error: %v", err)
-            }
-
-            switch iqError.Code {
-            case 409:
-                return fmt.Errorf("user already exists")
-            default:
-                return fmt.Errorf("registration failed with error code %d: %s", iqError.Code, iqError.Message)
-            }
+    if iqResponse, err := ParseIQ([]byte(response)); err == nil {
+        if iqResponse.IsError() {
+            return errors.New("registration failed")
+        } else if iqResponse.IsResult() {
+            fmt.Println("Registration successful")
+            return nil
         }
-    } else if iqResponse.IsResult() {
-        log.Println("User created successfully")
-        return nil
     }
 
     return errors.New("unexpected registration response")
-}
-
-
-// StartTLS sends the STARTTLS command to the server and upgrades the connection to TLS.
-func StartTLS(conn *XMPPConnection) error {
-    startTLS := "<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>"
-    if _, err := conn.Conn.Write([]byte(startTLS)); err != nil {
-        return fmt.Errorf("failed to send STARTTLS: %v", err)
-    }
-
-    buffer := make([]byte, 4096)
-    n, err := conn.Conn.Read(buffer)
-    if err != nil {
-        return fmt.Errorf("failed to read STARTTLS response: %v", err)
-    }
-
-    response := string(buffer[:n])
-    log.Printf("Received STARTTLS response: %s\n", response)
-
-    if strings.Contains(response, "<proceed") {
-        log.Println("Proceeding with TLS handshake...")
-        tlsConn := tls.Client(conn.Conn, &tls.Config{
-            InsecureSkipVerify: true, // Disable verification for testing, not recommended for production
-        })
-        conn.Conn = tlsConn
-        if err := tlsConn.Handshake(); err != nil {
-            return fmt.Errorf("TLS handshake failed: %v", err)
-        }
-        log.Println("TLS handshake successful")
-        return nil
-    }
-
-    return errors.New("failed to initiate STARTTLS")
 }

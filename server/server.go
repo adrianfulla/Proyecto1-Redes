@@ -34,18 +34,19 @@ func main() {
 
 func LogInTest(){
 	server := "alumchat.lol:5222"
-    username := "aa-test3@alumchat.lol"
-    password := "12345"
+    username := "aa-test4"
+    password := "12344445"
 
-    conn, err := xmpp.NewXMPPConnection(server, false) // Use TLS
-	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
-	}
-	defer conn.Close()
-		log.Println("Passed connection")
-	if err := xmpp.Authenticate(conn, username, password); err != nil {
-		log.Fatalf("Failed to authenticate: %v", err)
-	}
+    handler, err := xmpp.NewXMPPHandler(server, username, password)
+    if err != nil {
+        log.Fatalf("Failed to initialize XMPP handler: %v", err)
+    }
+
+    handler.SendPresence("available", "Ready to chat!")
+    handler.SendMessage("adrianfulla21592-test1@alumchat.lol", "Hello, how are you?")
+    handler.HandleIncomingStanzas()
+
+    handler.WaitForShutdown()
 }
 
 func CreateUserTest(){
@@ -65,7 +66,7 @@ func CreateUserTest(){
     }
 
     // Attempt to create a new user account
-    username := "aa-test5"
+    username := "aa-test3"
     password := "12345"
     err = xmpp.CreateUser(conn, username, password)
     if err != nil {
