@@ -121,3 +121,36 @@ func extractErrorMessage(response string) string {
     }
     return response[start:end]
 }
+
+
+func BindResource(conn *XMPPConnection) error {
+    // Resource binding request
+    iqStanza := `<iq type="set" id="bind_1">
+                    <bind xmlns="urn:ietf:params:xml:ns:xmpp-bind">
+                        <resource>example</resource>
+                    </bind>
+                 </iq>`
+
+    // Send the IQ stanza for resource binding
+    _, err := conn.Conn.Write([]byte(iqStanza))
+    if err != nil {
+        return fmt.Errorf("failed to send resource binding request: %v", err)
+    }
+
+    // Wait for the response
+    buffer := make([]byte, 4096)
+    n, err := conn.Conn.Read(buffer)
+    if err != nil {
+        return fmt.Errorf("error reading resource binding response: %v", err)
+    }
+
+    response := string(buffer[:n])
+    log.Printf("Received resource binding response: %s\n", response)
+
+    if strings.Contains(response, "<iq type=\"result\"") {
+        log.Println("Resource binding successful")
+        return nil
+    }
+
+    return fmt.Errorf("resource binding failed or unexpected response")
+}

@@ -27,23 +27,24 @@ func main() {
 
 	// MelliumTest()
 
-	CreateUserTest()
-	// LogInTest()
+	// CreateUserTest()
+	LogInTest()
 
 }
 
 func LogInTest(){
-	server := "alumchat.lol:5222"
+	domain := "alumchat.lol"
+	port := "5222"
     username := "aa-test4"
     password := "12345"
 
-    handler, err := xmpp.NewXMPPHandler(server, username, password)
+    handler, err := xmpp.NewXMPPHandler(domain, port, username, password)
     if err != nil {
         log.Fatalf("Failed to initialize XMPP handler: %v", err)
     }
 
     handler.SendPresence("available", "Ready to chat!")
-    handler.SendMessage("adrianfulla21592-test1@alumchat.lol", "Hello, how are you?")
+    handler.SendMessage("afp21592@alumchat.lol", "Hello, how are you?")
     handler.HandleIncomingStanzas()
 
     handler.WaitForShutdown()
@@ -51,10 +52,11 @@ func LogInTest(){
 
 func CreateUserTest(){
 	// server := "alumchat.lol:7070"
-	server := "alumchat.lol:5222"
+	domain := "alumchat.lol"
+	port := "5222"
 
     // Establish a connection to the XMPP server
-    conn, err := xmpp.NewXMPPConnection(server, false) 
+    conn, err := xmpp.NewXMPPConnection(domain, port, false) 
     if err != nil {
         log.Fatalf("Failed to connect: %v", err)
     }
@@ -66,7 +68,7 @@ func CreateUserTest(){
     }
 
     // Attempt to create a new user account
-    username := "aa-test11"
+    username := "aa-test21"
     password := "12345"
     err = xmpp.CreateUser(conn, username, password)
     if err != nil {

@@ -13,14 +13,14 @@ type XMPPHandler struct {
     Password string
 }
 
-func NewXMPPHandler(server, username, password string) (*XMPPHandler, error) {
+func NewXMPPHandler(domain, port, username, password string) (*XMPPHandler, error) {
     handler := &XMPPHandler{
-        Server:   server,
+        Server:   domain +":"+port,
         Username: username,
         Password: password,
     }
 
-    conn, err := NewXMPPConnection(server, false)
+    conn, err := NewXMPPConnection(domain, port, false)
     if err != nil {
         return nil, err
     }
@@ -37,6 +37,11 @@ func NewXMPPHandler(server, username, password string) (*XMPPHandler, error) {
 
     // Authenticate
     if err := Authenticate(handler.Conn, username, password); err != nil {
+        return nil, err
+    }
+
+    // Bind Resource
+    if err := BindResource(handler.Conn); err != nil {
         return nil, err
     }
 

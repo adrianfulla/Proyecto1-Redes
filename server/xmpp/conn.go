@@ -12,11 +12,13 @@ import (
 
 type XMPPConnection struct {
     Conn net.Conn
+	Domain string
 }
 
-func NewXMPPConnection(address string, useTLS bool) (*XMPPConnection, error) {
+func NewXMPPConnection(domain string,port string, useTLS bool) (*XMPPConnection, error) {
     var conn net.Conn
     var err error
+	address := domain+":"+port
 
 	dialer := &net.Dialer{
         Timeout: 5 * time.Second,
@@ -42,7 +44,7 @@ func NewXMPPConnection(address string, useTLS bool) (*XMPPConnection, error) {
         return nil, err
     }
 
-    return &XMPPConnection{Conn: conn}, nil
+    return &XMPPConnection{Conn: conn, Domain: domain}, nil
 }
 
 func (xc *XMPPConnection) Close() error {
@@ -82,12 +84,16 @@ func StartTLS(conn *XMPPConnection) error {
     return errors.New("failed to initiate STARTTLS")
 }
 
-// sendStanza sends a stanza over the XMPP connection.
+// sendStanza sends a stanza over the XMPP connection and logs it.
 func sendStanza(conn *XMPPConnection, stanza Stanza) error {
     xml, err := stanza.ToXML()
     if err != nil {
         return fmt.Errorf("failed to marshal stanza to XML: %v", err)
     }
+    
+    // Log the outgoing XML
+    log.Printf("Sending XML: %s", xml)
+
     _, err = conn.Conn.Write([]byte(xml))
     return err
 }
