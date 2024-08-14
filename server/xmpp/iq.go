@@ -71,7 +71,7 @@ func CreateUser(conn *XMPPConnection, username, password string) error {
     if strings.Contains(response, "<stream:features>") {
         log.Println("Stream features received. Continuing to monitor for registration result...")
         // Check if the response also contains an IQ result/error directly after <stream:features>
-        if strings.Contains(response, "<iq type='result'") {
+        if strings.Contains(response, "<iq type=\"result\"") {
             log.Println("User created successfully")
             return nil
         }
