@@ -134,6 +134,7 @@ func (h *XMPPHandler) HandleIncomingStanzas() error {
 					log.Printf("Failed to parse presence: %v", err)
 					continue
 				}
+                log.Printf("Presence Obtained: %s", se)
 				h.handlePresence(&pres)
 
 			case "iq":
@@ -152,13 +153,8 @@ func (h *XMPPHandler) HandleIncomingStanzas() error {
 	}
 }
 
-func (h *XMPPHandler) handleMessage(msg *Message) {
-	log.Printf("Message from %s: %s", msg.From, msg.Body)
-	// Here you could trigger a callback or update the UI with the message
-}
-
 func (h *XMPPHandler) handlePresence(pres *Presence) {
-	log.Printf("Presence from %s: %s", pres.From, pres.Status)
+	log.Printf("Presence from %s: %s|%s|%s", pres.From, pres.Status, pres.Show, pres.Type)
 	// Handle presence (e.g., update contact status)
 }
 
@@ -314,20 +310,27 @@ func (h *XMPPHandler) DispatchMessage(msg *Message) {
     recipient := strings.Split(msg.From, "/")[0]
 
     if chatWindow, ok := h.ChatWindows[recipient]; ok && chatWindow != nil {
+        chatWindow.AddMessage(msg)
         fyne.CurrentApp().SendNotification(&fyne.Notification{
             Title:   "New Message",
             Content: fmt.Sprintf("%s: %s", recipient, msg.Body),
         })
-
-        // Directly update the UI within the goroutine
-        chatWindow.AddMessage(msg)
     } else {
-        if len(msg.Body) > 0{
+        if len(msg.Body) > 0 {
             log.Printf("No chat window open for %s, queueing message", recipient)
             h.MessageQueue[recipient] = append(h.MessageQueue[recipient], msg)
+            
+            // Send notification for each queued message
+            fyne.CurrentApp().SendNotification(&fyne.Notification{
+                Title:   "New Message",
+                Content: fmt.Sprintf("%s: %s", recipient, msg.Body),
+            })
         }
     }
 }
+
+
+
 
 
 

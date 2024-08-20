@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -70,8 +71,6 @@ func ShowLoginWindow() {
 
     myWindow.ShowAndRun()
 }
-
-
 
 // ShowChatWindow opens a new chat window with the selected contact.
 func ShowChatWindow(app fyne.App, handler *xmpp.XMPPHandler, recipient string) *xmpp.ChatWindow {
@@ -156,47 +155,65 @@ func ShowChatWindow(app fyne.App, handler *xmpp.XMPPHandler, recipient string) *
 	}
 }
 
-
 // ShowContactsWindow displays the user's contact list.
 func ShowContactsWindow(app fyne.App, handler *xmpp.XMPPHandler) {
     contactWindow := app.NewWindow("Contacts - " + handler.Username)
 
+    var contacts []xmppfunctions.Contact
+
     // Function to refresh the contact list
-    refreshContactList := func() *widget.List {
-        contacts, err := xmppfunctions.GetContacts(handler)
+    refreshContactList := func(contactList *widget.List) {
+        var err error
+        contacts, err = xmppfunctions.GetContacts(handler)
         if err != nil {
             log.Printf("Failed to get contacts: %v", err)
             dialog.ShowError(err, contactWindow)
-            return nil
+            return
         }
 
-        contactList := widget.NewList(
-            func() int {
-                return len(contacts)
-            },
-            func() fyne.CanvasObject {
-                return widget.NewLabel("")
-            },
-            func(i widget.ListItemID, o fyne.CanvasObject) {
-                o.(*widget.Label).SetText(contacts[i].JID)
-            })
+        contactList.Length = func() int {
+            return len(contacts)
+        }
 
-        contactList.OnSelected = func(id widget.ListItemID) {
+        contactList.UpdateItem = func(i widget.ListItemID, o fyne.CanvasObject) {
+            jid := contacts[i].JID
+			queuedMessages := len(handler.MessageQueue[jid])
+            displayText := jid
+
+            if queuedMessages > 0 {
+                displayText = fmt.Sprintf("%s (%d)", jid, queuedMessages)
+            }
+
+            o.(*widget.Label).SetText(displayText)
+			
+        }
+
+        contactList.Refresh()
+    }
+
+    contactList := widget.NewList(
+        func() int {
+            return len(contacts)
+        },
+        func() fyne.CanvasObject {
+            return widget.NewLabel("")
+        },
+        func(i widget.ListItemID, o fyne.CanvasObject) {},
+    )
+
+    refreshContactList(contactList)
+
+    contactList.OnSelected = func(id widget.ListItemID) {
+        if id >= 0 && id < len(contacts) {
             selectedContact := contacts[id]
             chatWindow := ShowChatWindow(app, handler, selectedContact.JID)
             handler.ChatWindows[selectedContact.JID] = chatWindow
+        } else {
+            log.Printf("Invalid selection: %d", id)
         }
-
-        return contactList
     }
 
-    contactList := refreshContactList()
-
-    // Declare the "Add Contact" button so it's available in the callback
-    var addContactButton *widget.Button
-
-    addContactButton = widget.NewButton("Add Contact", func() {
-        // Show a dialog to enter the new contact's JID
+    addContactButton := widget.NewButton("Add Contact", func() {
         jidEntry := widget.NewEntry()
         jidEntry.SetPlaceHolder("Enter contact JID (e.g., user@example.com)")
 
@@ -213,42 +230,103 @@ func ShowContactsWindow(app fyne.App, handler *xmpp.XMPPHandler) {
                         dialog.ShowError(err, contactWindow)
                     } else {
                         log.Printf("Contact added: %s", newJID)
-                        // Refresh the contact list after adding a new contact
-                        contactWindow.SetContent(container.New(layout.NewVBoxLayout(),
-                            addContactButton,
-                            widget.NewLabel("Your Contacts"),
-                            container.NewMax(container.NewVScroll(refreshContactList())),
-                        ))
+                        refreshContactList(contactList)
                     }
                 }
             }
         }, contactWindow)
     })
 
-    // Set the content of the contact window, including the add contact button
-    contactWindow.SetContent(container.New(layout.NewVBoxLayout(),
-        addContactButton,
-        widget.NewLabel("Your Contacts"),
-        container.NewVScroll(contactList),
-    ))
+    settingsButton := widget.NewButton("Settings", func() {
+        ShowUserSettingsWindow(app, handler)
+    })
+
+    contactWindow.SetContent(
+        container.NewBorder(
+            container.NewVBox(settingsButton, addContactButton, widget.NewLabel("Your Contacts")),
+            nil, nil, nil,
+            container.NewVScroll(contactList),
+        ),
+    )
 
     contactWindow.Resize(fyne.NewSize(300, 400))
     contactWindow.Show()
+	
+	go func() {
+        for {
+            for _, queuedMessages := range handler.MessageQueue {
+                if len(queuedMessages) > 0 {
+                    contactList.Refresh()
+                }
+            }
+            time.Sleep(2 * time.Second)
+        }
+    }()
 
     go func() {
         for msg := range handler.MessageChan {
-            // Directly call DispatchMessage to handle and update UI
             handler.DispatchMessage(msg)
         }
     }()
 
-    handler.ListenForIncomingStanzas() // Start listening for all incoming stanzas
+    handler.ListenForIncomingStanzas()
 }
 
 
 
 
+func ShowUserSettingsWindow(app fyne.App, handler *xmpp.XMPPHandler) {
+    settingsWindow := app.NewWindow("User Settings")
 
+    logoutButton := widget.NewButton("Logout", func() {
+        err := xmppfunctions.Logout(handler)
+        if err != nil {
+            log.Printf("Logout failed: %v", err)
+            dialog.ShowError(err, settingsWindow)
+        } else {
+            log.Println("Logged out successfully")
+			CloseAllWindows(app)
+            settingsWindow.Close()
+			app.Quit()
+        }
+    })
+
+    deleteAccountButton := widget.NewButton("Delete Account", func() {
+        confirmDialog := dialog.NewConfirm("Delete Account", "Are you sure you want to delete your account?", func(confirm bool) {
+            if confirm {
+                err := xmppfunctions.RemoveAccount(handler)
+                if err != nil {
+                    log.Printf("Account removal failed: %v", err)
+                    dialog.ShowError(err, settingsWindow)
+					app.Quit()
+                } else {
+                    log.Println("Account removed successfully")
+                    settingsWindow.Close()
+                    // Optionally close all windows or return to the login window
+                    app.Quit()
+                }
+            }
+        }, settingsWindow)
+        confirmDialog.SetDismissText("Cancel")
+        confirmDialog.Show()
+    })
+
+    settingsWindow.SetContent(container.NewVBox(
+        widget.NewLabel("User Settings"),
+        logoutButton,
+        deleteAccountButton,
+    ))
+
+    settingsWindow.Resize(fyne.NewSize(300, 200))
+    settingsWindow.Show()
+}
+
+
+func CloseAllWindows(app fyne.App) {
+    for _, window := range app.Driver().AllWindows() {
+        window.Close()
+    }
+}
 
 
 func ShowCreateAccountDialog(app fyne.App, parent fyne.Window) {

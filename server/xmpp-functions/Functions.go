@@ -77,7 +77,7 @@ func RemoveAccount(handler *xmpp.XMPPHandler) error {
     }
 
     response := string(buffer[:n])
-    if strings.Contains(response, "<iq type='result'") {
+    if strings.Contains(response, "<iq type=\"result\"") {
         log.Println("Account removed successfully")
         return nil
     }
