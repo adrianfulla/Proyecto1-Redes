@@ -86,6 +86,42 @@ func RemoveAccount(handler *xmpp.XMPPHandler) error {
 }
 
 // GetContacts retrieves the user's roster (contact list).
+// func GetContacts(handler *xmpp.XMPPHandler) ([]Contact, error) {
+//     iqID := "getRoster1"
+//     rosterRequest := `<iq type="get" id="` + iqID + `"><query xmlns="jabber:iq:roster"/></iq>`
+
+//     _, err := handler.Conn.Conn.Write([]byte(rosterRequest))
+//     if err != nil {
+//         return nil, fmt.Errorf("failed to send roster request: %v", err)
+//     }
+
+//     // Wait for the response
+//     buffer := make([]byte, 4096)
+//     n, err := handler.Conn.Conn.Read(buffer)
+//     if err != nil {
+//         return nil, fmt.Errorf("error reading roster response: %v", err)
+//     }
+
+//     response := string(buffer[:n])
+// 	fmt.Printf("Obtained response: %s\n", response)
+
+//     var iq IQ
+//     err = xml.Unmarshal([]byte(response) ,&iq)
+//     if err != nil {
+//         return nil, fmt.Errorf("failed parsing roster response: %v", err)
+//     }
+//     contacts := []Contact{}
+//     for _, item := range iq.Query.Items {
+//         contacts = append(contacts, Contact{
+//             JID: item.JID,
+//             Name: item.Name,
+//             Subscription: item.Subscription,
+//         })
+//     }
+
+//     return contacts, nil
+// }
+
 func GetContacts(handler *xmpp.XMPPHandler) ([]Contact, error) {
     iqID := "getRoster1"
     rosterRequest := `<iq type="get" id="` + iqID + `"><query xmlns="jabber:iq:roster"/></iq>`
@@ -103,24 +139,40 @@ func GetContacts(handler *xmpp.XMPPHandler) ([]Contact, error) {
     }
 
     response := string(buffer[:n])
-	fmt.Printf("Obtained response: %s\n", response)
+    fmt.Printf("Obtained response: %s\n", response)
 
     var iq IQ
-    err = xml.Unmarshal([]byte(response) ,&iq)
+    err = xml.Unmarshal([]byte(response), &iq)
     if err != nil {
         return nil, fmt.Errorf("failed parsing roster response: %v", err)
     }
+
     contacts := []Contact{}
     for _, item := range iq.Query.Items {
-        contacts = append(contacts, Contact{
-            JID: item.JID,
-            Name: item.Name,
+        contact := Contact{
+            JID:          item.JID,
+            Name:         item.Name,
             Subscription: item.Subscription,
-        })
+            Presence:     "unavailable", // Default to unavailable
+        }
+        log.Printf(contact.JID)
+        // Check if there is a presence for this contact in the PresenceStack
+        if presence, found := handler.PresenceStack[contact.JID]; found {
+            
+            contact.Presence = presence.Show
+            if (presence.IsAvailable()) {
+                contact.Status = "Online"
+            } else{
+                contact.Status = "Offline"
+            }
+        }
+
+        contacts = append(contacts, contact)
     }
 
     return contacts, nil
 }
+
 
 // AddContact adds a new contact to the user's roster.
 func AddContact(handler *xmpp.XMPPHandler, jid string) error {
@@ -193,6 +245,7 @@ type Contact struct {
     JID    string
     Name   string
     Subscription string
+    Presence string
     Status string
 }
 

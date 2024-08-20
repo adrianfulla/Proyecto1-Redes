@@ -18,6 +18,7 @@ type XMPPHandler struct {
     ChatWindows map[string]*ChatWindow
     MessageChan chan *Message
     MessageQueue map[string][]*Message
+    PresenceStack map[string]*Presence
 }
 type ChatWindow struct {
     Window       fyne.Window
@@ -35,9 +36,6 @@ func (cw *ChatWindow) AddMessage(msg *Message) {
     cw.Window.Content().Refresh()
 }
 
-
-
-
 func NewXMPPHandler(domain, port, username, password string) (*XMPPHandler, error) {
     handler := &XMPPHandler{
         Server:   domain +":"+port,
@@ -46,6 +44,7 @@ func NewXMPPHandler(domain, port, username, password string) (*XMPPHandler, erro
         ChatWindows: make(map[string]*ChatWindow),
         MessageChan:  make(chan *Message, 100),
         MessageQueue: make(map[string][]*Message),
+        PresenceStack: make(map[string]*Presence),
     }
 
     conn, err := NewXMPPConnection(domain, port, false)
@@ -134,7 +133,6 @@ func (h *XMPPHandler) HandleIncomingStanzas() error {
 					log.Printf("Failed to parse presence: %v", err)
 					continue
 				}
-                log.Printf("Presence Obtained: %s", se)
 				h.handlePresence(&pres)
 
 			case "iq":
@@ -154,8 +152,11 @@ func (h *XMPPHandler) HandleIncomingStanzas() error {
 }
 
 func (h *XMPPHandler) handlePresence(pres *Presence) {
-	log.Printf("Presence from %s: %s|%s|%s", pres.From, pres.Status, pres.Show, pres.Type)
-	// Handle presence (e.g., update contact status)
+	jid := strings.Split(pres.From, "/")[0]
+    log.Printf("Presence from %s: %s|%s|%s", jid, pres.Status, pres.Show, pres.Type)
+	
+    h.PresenceStack[jid] = pres
+    
 }
 
 func (h *XMPPHandler) handleIQ(iq *IQ) {
@@ -213,8 +214,6 @@ func (h *XMPPHandler) sendIQResult(iq *IQ) {
         log.Printf("Sent IQ response to %s", iq.From)
     }
 }
-
-
 
 func (h *XMPPHandler) handleVersionQuery(iq *IQ) {
     log.Printf("Received version query from %s", iq.From)

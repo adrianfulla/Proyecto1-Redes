@@ -174,14 +174,13 @@ func ShowContactsWindow(app fyne.App, handler *xmpp.XMPPHandler) {
         contactList.Length = func() int {
             return len(contacts)
         }
-
         contactList.UpdateItem = func(i widget.ListItemID, o fyne.CanvasObject) {
-            jid := contacts[i].JID
+			jid := contacts[i].JID
 			queuedMessages := len(handler.MessageQueue[jid])
-            displayText := jid
+            displayText := fmt.Sprintf("%s - %s",jid,contacts[i].Status)
 
             if queuedMessages > 0 {
-                displayText = fmt.Sprintf("%s (%d)", jid, queuedMessages)
+                displayText = fmt.Sprintf("%s (%d) - %s", jid, queuedMessages, contacts[i].Status)
             }
 
             o.(*widget.Label).SetText(displayText)
