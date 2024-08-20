@@ -5,18 +5,35 @@ import(
 	"errors"
 	"fmt"
 	"strings"
+    "encoding/xml"
 	"log"
 )
 
 // CreateUser creates a new account on the XMPP server.
 func CreateUser(domain,port, username, password string) error {
-    handler, err := xmpp.NewXMPPHandler(domain,port, "", "")
+    handler := &xmpp.XMPPHandler{
+        Server:   domain +":"+port,
+        Username: username,
+        Password: password,
+    }
+
+    conn, err := xmpp.NewXMPPConnection(domain, port, false)
     if err != nil {
         return err
     }
-    defer handler.Conn.Close()
+    handler.Conn = conn
 
-    return xmpp.CreateUser(handler.Conn, username, password)
+    if err := handler.Conn.StartStream(""); err != nil {
+        return err
+    }
+
+    // If the user does not exist, create it
+    if err := xmpp.CreateUser(handler.Conn, username, password); err != nil {
+        log.Println("User creation failed or user already exists, proceeding with login...")
+        return err
+    }
+
+    return nil
 }
 
 // Login authenticates a user and returns an XMPPHandler.
@@ -25,7 +42,7 @@ func Login(domain,port, username, password string) (*xmpp.XMPPHandler, error) {
     if err != nil {
         return nil, err
     }
-
+    // handler.SendPresence("presence", "Online")
     return handler, nil
 }
 
@@ -68,7 +85,6 @@ func RemoveAccount(handler *xmpp.XMPPHandler) error {
     return fmt.Errorf("failed to remove account: %s", response)
 }
 
-
 // GetContacts retrieves the user's roster (contact list).
 func GetContacts(handler *xmpp.XMPPHandler) ([]Contact, error) {
     iqID := "getRoster1"
@@ -87,19 +103,41 @@ func GetContacts(handler *xmpp.XMPPHandler) ([]Contact, error) {
     }
 
     response := string(buffer[:n])
-    // Parse the roster from the response and return it
-    // You would need to parse the XML into Contact structs
-    // Placeholder return value:
 	fmt.Printf("Obtained response: %s\n", response)
-    return []Contact{}, nil
+
+    var iq IQ
+    err = xml.Unmarshal([]byte(response) ,&iq)
+    if err != nil {
+        return nil, fmt.Errorf("failed parsing roster response: %v", err)
+    }
+    contacts := []Contact{}
+    for _, item := range iq.Query.Items {
+        contacts = append(contacts, Contact{
+            JID: item.JID,
+            Name: item.Name,
+            Subscription: item.Subscription,
+        })
+    }
+
+    return contacts, nil
 }
 
 // AddContact adds a new contact to the user's roster.
-func AddContact(handler *xmpp.XMPPHandler, contactJID string) error {
-    presence := fmt.Sprintf(`<presence to='%s' type='subscribe'/>`, contactJID)
-    _, err := handler.Conn.Conn.Write([]byte(presence))
-    return err
+func AddContact(handler *xmpp.XMPPHandler, jid string) error {
+    // Send a presence subscription request to the new contact
+    subscriptionRequest := fmt.Sprintf(
+        `<presence to='%s' type='subscribe'/>`,
+        jid,
+    )
+
+    _, err := handler.Conn.Conn.Write([]byte(subscriptionRequest))
+    if err != nil {
+        return fmt.Errorf("failed to send subscription request: %v", err)
+    }
+
+    return nil
 }
+
 
 // GetContactDetails retrieves details about a specific contact.
 func GetContactDetails(handler *xmpp.XMPPHandler, contactJID string) (ContactDetails, error) {
@@ -139,9 +177,14 @@ func SendFile(handler *xmpp.XMPPHandler, to, filePath string) error {
 }
 
 // ReceiveMessages handles incoming messages and stanzas.
-func ReceiveMessages(handler *xmpp.XMPPHandler) error {
-    // return handler.HandleIncomingStanzas()
-	return nil
+func ReceiveMessages(handler *xmpp.XMPPHandler) (string, error) {
+    // The HandleIncomingStanzas now returns on errors, so we use it in a loop.
+    for {
+        err := handler.HandleIncomingStanzas()
+        if err != nil {
+            return "", err
+        }
+    }
 }
 
 
@@ -149,6 +192,7 @@ func ReceiveMessages(handler *xmpp.XMPPHandler) error {
 type Contact struct {
     JID    string
     Name   string
+    Subscription string
     Status string
 }
 
@@ -157,3 +201,23 @@ type ContactDetails struct {
     Name      string
     VCardInfo string
 }
+
+type RosterQuery struct {
+	XMLName xml.Name    `xml:"query"`
+	Items   []RosterItem `xml:"item"`
+}
+
+type RosterItem struct {
+	JID          string `xml:"jid,attr"`
+	Subscription string `xml:"subscription,attr"`
+	Name         string `xml:"name,attr,omitempty"`
+}
+
+type IQ struct {
+	XMLName xml.Name   `xml:"iq"`
+	Type    string     `xml:"type,attr"`
+	ID      string     `xml:"id,attr"`
+	To      string     `xml:"to,attr,omitempty"`
+	Query   RosterQuery `xml:"query"`
+}
+

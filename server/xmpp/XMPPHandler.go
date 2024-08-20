@@ -1,9 +1,13 @@
 package xmpp
 
 import (
-    "log"
-    "fmt"
-    "bufio"
+	"encoding/xml"
+	"fmt"
+	"log"
+	"strings"
+
+	"fyne.io/fyne/v2"
+    "fyne.io/fyne/v2/widget"
 )
 
 type XMPPHandler struct {
@@ -11,13 +15,37 @@ type XMPPHandler struct {
     Server   string
     Username string
     Password string
+    ChatWindows map[string]*ChatWindow
+    MessageChan chan *Message
+    MessageQueue map[string][]*Message
 }
+type ChatWindow struct {
+    Window       fyne.Window
+    ChatContent  *fyne.Container
+    Handler      *XMPPHandler
+    Recipient    string
+}
+
+func (cw *ChatWindow) AddMessage(msg *Message) {
+    // Create a new label for the incoming message and add it to the chat content
+    messageLabel := widget.NewLabel(fmt.Sprintf("%s: %s", strings.Split(msg.From,"/")[0], msg.Body))
+    cw.ChatContent.Add(messageLabel)
+    
+    // Refresh the window to display the new message
+    cw.Window.Content().Refresh()
+}
+
+
+
 
 func NewXMPPHandler(domain, port, username, password string) (*XMPPHandler, error) {
     handler := &XMPPHandler{
         Server:   domain +":"+port,
         Username: username,
         Password: password,
+        ChatWindows: make(map[string]*ChatWindow),
+        MessageChan:  make(chan *Message, 100),
+        MessageQueue: make(map[string][]*Message),
     }
 
     conn, err := NewXMPPConnection(domain, port, false)
@@ -31,9 +59,9 @@ func NewXMPPHandler(domain, port, username, password string) (*XMPPHandler, erro
     }
 
     // If the user does not exist, create it
-    if err := CreateUser(handler.Conn, username, password); err != nil {
-        log.Println("User creation failed or user already exists, proceeding with login...")
-    }
+    // if err := CreateUser(handler.Conn, username, password); err != nil {
+    //     log.Println("User creation failed or user already exists, proceeding with login...")
+    // }
 
     // Authenticate
     if err := Authenticate(handler.Conn, username, password); err != nil {
@@ -79,19 +107,165 @@ func (h *XMPPHandler) SendMessage(to, message string) error {
     return nil
 }
 
-// HandleIncomingStanzas listens for incoming stanzas and processes them.
-func (h *XMPPHandler) HandleIncomingStanzas() {
-    reader := bufio.NewReader(h.Conn.Conn)
-    for {
-        stanza, err := reader.ReadString('>')
-        if err != nil {
-            log.Printf("Failed to read stanza: %v", err)
-            return
+func (h *XMPPHandler) HandleIncomingStanzas() error {
+	decoder := xml.NewDecoder(h.Conn.Conn)
+
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			log.Printf("Failed to read stanza: %v", err)
+			return err
+		}
+        
+		switch se := tok.(type) {
+		case xml.StartElement:
+			switch se.Name.Local {
+			case "message":
+				var msg Message
+                if err := decoder.DecodeElement(&msg, &se); err != nil {
+                    log.Printf("Failed to parse message: %v", err)
+                    continue
+                }
+                h.DispatchMessage(&msg)
+
+			case "presence":
+				var pres Presence
+				if err := decoder.DecodeElement(&pres, &se); err != nil {
+					log.Printf("Failed to parse presence: %v", err)
+					continue
+				}
+				h.handlePresence(&pres)
+
+			case "iq":
+				var iq IQ
+                log.Printf("Obtained IQ: %s", se)
+				if err := decoder.DecodeElement(&iq, &se); err != nil {
+					log.Printf("Failed to parse IQ: %v", err)
+					continue
+				}
+				h.handleIQ(&iq)
+
+			default:
+				log.Printf("Unhandled stanza type: %s", se.Name.Local)
+			}
+		}
+	}
+}
+
+func (h *XMPPHandler) handleMessage(msg *Message) {
+	log.Printf("Message from %s: %s", msg.From, msg.Body)
+	// Here you could trigger a callback or update the UI with the message
+}
+
+func (h *XMPPHandler) handlePresence(pres *Presence) {
+	log.Printf("Presence from %s: %s", pres.From, pres.Status)
+	// Handle presence (e.g., update contact status)
+}
+
+func (h *XMPPHandler) handleIQ(iq *IQ) {
+    // Check if the IQ has a known type but no specific query body
+    if iq.Type == "get" || iq.Type == "set" {
+        // Handle specific IQ requests, like version or ping
+        if iq.Query == nil {
+            log.Printf("Received IQ request without specific query from %s", iq.From)
+
+            // Determine the response type based on common XMPP queries
+            switch iq.ID {
+            // Add cases for known IQ requests based on the ID or other attributes
+            default:
+                // If we don't recognize the specific IQ request, we can send a basic result
+                h.sendIQResult(iq)
+            }
+        } else {
+            // If there's a query body, handle it accordingly
+            switch query := iq.Query.(type) {
+            case struct{ XMLName xml.Name }:
+                switch query.XMLName.Space {
+                case "jabber:iq:version":
+                    h.handleVersionQuery(iq)
+                // case "jabber:iq:roster":
+                //     h.handleRosterQuery(iq)
+                default:
+                    log.Printf("Unhandled IQ namespace: %s", query.XMLName.Space)
+                }
+            default:
+                log.Printf("Unhandled type in IQ query: %T", iq.Query)
+            }
         }
-        log.Printf("Received stanza: %s", stanza)
-        // Here you would parse and handle the stanza based on its type
     }
 }
+
+func (h *XMPPHandler) sendIQResult(iq *IQ) {
+    response := IQ{
+        XMLName: xml.Name{Local: "iq"},
+        Type:    "result",
+        ID:      iq.ID,
+        To:      iq.From,
+    }
+
+    // Convert to XML and send the response
+    xmlResponse, err := response.ToXML()
+    if err != nil {
+        log.Printf("Failed to marshal IQ response: %v", err)
+        return
+    }
+
+    _, err = h.Conn.Conn.Write([]byte(xmlResponse))
+    if err != nil {
+        log.Printf("Failed to send IQ response: %v", err)
+    } else {
+        log.Printf("Sent IQ response to %s", iq.From)
+    }
+}
+
+
+
+func (h *XMPPHandler) handleVersionQuery(iq *IQ) {
+    log.Printf("Received version query from %s", iq.From)
+
+    response := fmt.Sprintf(
+        `<iq type='result' id='%s' to='%s'>
+            <query xmlns='jabber:iq:version'>
+                <name>XMPP Client</name>
+                <version>1.0</version>
+                <os>Go</os>
+            </query>
+        </iq>`, iq.ID, iq.From)
+
+    _, err := h.Conn.Conn.Write([]byte(response))
+    if err != nil {
+        log.Printf("Failed to send IQ response: %v", err)
+    } else {
+        log.Printf("Sent IQ response to %s", iq.From)
+    }
+}
+
+func (h *XMPPHandler) RequestOfflineMessages() error {
+    iq := IQ{
+        XMLName: xml.Name{Local: "iq"},
+        Type:    "get",
+        ID:      "offline1",
+        Query: struct {
+            XMLName xml.Name `xml:"offline"`
+        }{
+            XMLName: xml.Name{Local: "query", Space: "jabber:iq:offline"},
+        },
+    }
+
+    iqXML, err := xml.Marshal(iq)
+    if err != nil {
+        return fmt.Errorf("failed to marshal offline message request: %v", err)
+    }
+
+    _, err = h.Conn.Conn.Write(iqXML)
+    if err != nil {
+        return fmt.Errorf("failed to send offline message request: %v", err)
+    }
+
+    log.Println("Offline message request sent successfully")
+    return nil
+}
+
 
 // WaitForShutdown keeps the connection alive until shutdown is requested.
 func (h *XMPPHandler) WaitForShutdown() {
@@ -99,3 +273,65 @@ func (h *XMPPHandler) WaitForShutdown() {
     // Implementation could wait on a signal or just block until interrupted
     select {}
 }
+
+
+func (h *XMPPHandler) LoginAndFetchMessages(status string) error {
+    // Send presence to indicate the client is online
+    if err := h.SendPresence("presence",status); err != nil {
+        return err
+    }
+
+    // Request offline messages (if the server requires this)
+    if err := h.RequestOfflineMessages(); err != nil {
+        return err
+    }
+
+    // Start listening for incoming messages
+    go func() {
+        if err := h.HandleIncomingStanzas(); err != nil {
+            log.Printf("Error handling incoming stanzas: %v", err)
+        }
+    }()
+
+    return nil
+}
+
+
+func (h *XMPPHandler) ListenForIncomingStanzas() {
+    h.SendPresence("presence", "Online")
+    go func() {
+        for {
+            err := h.HandleIncomingStanzas()
+            if err != nil {
+                log.Printf("Error handling stanzas: %v", err)
+                continue
+            }
+        }
+    }()
+}
+
+func (h *XMPPHandler) DispatchMessage(msg *Message) {
+    recipient := strings.Split(msg.From, "/")[0]
+
+    if chatWindow, ok := h.ChatWindows[recipient]; ok && chatWindow != nil {
+        fyne.CurrentApp().SendNotification(&fyne.Notification{
+            Title:   "New Message",
+            Content: fmt.Sprintf("%s: %s", recipient, msg.Body),
+        })
+
+        // Directly update the UI within the goroutine
+        chatWindow.AddMessage(msg)
+    } else {
+        if len(msg.Body) > 0{
+            log.Printf("No chat window open for %s, queueing message", recipient)
+            h.MessageQueue[recipient] = append(h.MessageQueue[recipient], msg)
+        }
+    }
+}
+
+
+
+
+
+
+

@@ -9,16 +9,21 @@ import (
 )
 
 type RegisterRequest struct {
-    XMLName  xml.Name `xml:"jabber:iq:register query"`
+    XMLName  xml.Name `xml:"query"`
+    XMLNS    string   `xml:"xmlns,attr"`
     Username string   `xml:"username"`
     Password string   `xml:"password"`
 }
 
+type RawXML []byte
+
 type IQ struct {
     XMLName xml.Name `xml:"iq"`
+    From    string   `xml:"from,attr,omitempty"`
+    To      string   `xml:"to,attr,omitempty"`
     Type    string   `xml:"type,attr"`
     ID      string   `xml:"id,attr"`
-    Query   interface{}
+    Query   interface{} `xml:",omitempty"`
 }
 
 func NewIQ(iqType, iqID string) *IQ {
@@ -45,14 +50,14 @@ func CreateUser(conn *XMPPConnection, username, password string) error {
     // Prepare the registration request
     iqID := "register1"
     register := RegisterRequest{
+        XMLNS:    "jabber:iq:register", // Set the correct namespace
         Username: username,
         Password: password,
     }
 
     iq := NewIQ("set", iqID)
     iq.SetQuery(register)
-
-    // Send the registration request
+    
     if err := sendStanza(conn, iq); err != nil {
         return fmt.Errorf("failed to send registration request: %v", err)
     }
