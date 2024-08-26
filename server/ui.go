@@ -72,8 +72,9 @@ func ShowLoginWindow() {
     myWindow.ShowAndRun()
 }
 
-// ShowChatWindow opens a new chat window with the selected contact.
-func ShowChatWindow(app fyne.App, handler *xmpp.XMPPHandler, recipient string) *xmpp.ChatWindow {
+
+// ShowContactsWindow displays the user's contact list.
+func ShowChatWindow(app fyne.App, handler *xmpp.XMPPHandler, recipient string, contact xmppfunctions.Contact) *xmpp.ChatWindow {
     chatWindow := app.NewWindow("Chat with " + recipient)
 
     messageEntry := widget.NewEntry()
@@ -81,9 +82,9 @@ func ShowChatWindow(app fyne.App, handler *xmpp.XMPPHandler, recipient string) *
 
     chatContent := container.NewVBox()
 
-	if queuedMessages, ok := handler.MessageQueue[recipient]; ok {
+    if queuedMessages, ok := handler.MessageQueue[recipient]; ok {
         for _, msg := range queuedMessages {
-            chatContent.Add(widget.NewLabel(fmt.Sprintf("%s: %s", strings.Split(msg.From,"/")[0], msg.Body)))
+            chatContent.Add(widget.NewLabel(fmt.Sprintf("%s: %s", strings.Split(msg.From, "/")[0], msg.Body)))
         }
         delete(handler.MessageQueue, recipient) // Clear the queue after displaying
     }
@@ -101,33 +102,20 @@ func ShowChatWindow(app fyne.App, handler *xmpp.XMPPHandler, recipient string) *
         }
     })
 
-    // Create a grid layout with two columns
+    // Button to show contact details
+    contactDetailsButton := widget.NewButton("Contact Details", func() {
+        ShowContactDetailsWindow(app, handler, contact)
+    })
+
+    // Layout: message entry, send button, and contact details button
     messageRow := container.New(layout.NewGridLayoutWithColumns(2), messageEntry, sendMessageButton)
-
-	chatWindow.Resize(fyne.NewSize(400, 500))
-
+    buttonRow := container.NewHBox(contactDetailsButton)
 
     chatWindow.SetContent(container.NewBorder(
         chatContent,
-        messageRow,
+        container.NewVBox(messageRow, buttonRow),
         nil, nil,
     ))
-
-	chatWindow.Canvas().SetOnTypedKey(func(key *fyne.KeyEvent) {
-        if key.Name == fyne.KeyReturn {
-            sendMessageButton.OnTapped()
-        }
-    })
-
-	chatWindow.Canvas().SetOnTypedRune(func(r rune) {
-        messageEntry.TypedRune(r)
-    })
-
-	chatWindow.Canvas().SetOnTypedKey(func(*fyne.KeyEvent) {
-        width := chatWindow.Canvas().Size().Width
-        messageEntry.Resize(fyne.NewSize(width*0.8, messageEntry.MinSize().Height))
-        sendMessageButton.Resize(fyne.NewSize(width*0.2, sendMessageButton.MinSize().Height))
-    })
 
     // Handle incoming messages in a separate goroutine
     go func() {
@@ -138,7 +126,6 @@ func ShowChatWindow(app fyne.App, handler *xmpp.XMPPHandler, recipient string) *
                 continue
             }
 
-            // After `HandleIncomingStanzas`, you might need to trigger the UI update.
             chatContent.Add(widget.NewLabel("Received a new message...")) // Example, replace with actual data
             chatWindow.Content().Refresh()
         }
@@ -147,15 +134,18 @@ func ShowChatWindow(app fyne.App, handler *xmpp.XMPPHandler, recipient string) *
     chatWindow.Resize(fyne.NewSize(400, 500))
     chatWindow.Show()
 
-	return &xmpp.ChatWindow{
-		Window:      chatWindow,
-		ChatContent: chatContent,
-		Handler:     handler,
-		Recipient:   recipient,
-	}
+    chatWindow.SetOnClosed(func() {
+        delete(handler.ChatWindows, recipient)
+    })
+
+    return &xmpp.ChatWindow{
+        Window:      chatWindow,
+        ChatContent: chatContent,
+        Handler:     handler,
+        Recipient:   recipient,
+    }
 }
 
-// ShowContactsWindow displays the user's contact list.
 func ShowContactsWindow(app fyne.App, handler *xmpp.XMPPHandler) {
     contactWindow := app.NewWindow("Contacts - " + handler.Username)
 
@@ -163,6 +153,7 @@ func ShowContactsWindow(app fyne.App, handler *xmpp.XMPPHandler) {
 
     // Function to refresh the contact list
     refreshContactList := func(contactList *widget.List) {
+        fmt.Printf("Obtaining contacts, first")
         var err error
         contacts, err = xmppfunctions.GetContacts(handler)
         if err != nil {
@@ -205,8 +196,13 @@ func ShowContactsWindow(app fyne.App, handler *xmpp.XMPPHandler) {
     contactList.OnSelected = func(id widget.ListItemID) {
         if id >= 0 && id < len(contacts) {
             selectedContact := contacts[id]
-            chatWindow := ShowChatWindow(app, handler, selectedContact.JID)
+            chatWindow := ShowChatWindow(app, handler, selectedContact.JID, selectedContact)
             handler.ChatWindows[selectedContact.JID] = chatWindow
+
+            chatWindow.Window.SetOnClosed(func() {
+                contactList.Unselect(id)
+                delete(handler.ChatWindows, selectedContact.JID)
+            })
         } else {
             log.Printf("Invalid selection: %d", id)
         }
@@ -253,11 +249,13 @@ func ShowContactsWindow(app fyne.App, handler *xmpp.XMPPHandler) {
 	
 	go func() {
         for {
+            contacts = xmppfunctions.CheckContacts(handler, contacts)
             for _, queuedMessages := range handler.MessageQueue {
                 if len(queuedMessages) > 0 {
                     contactList.Refresh()
                 }
             }
+
             time.Sleep(2 * time.Second)
         }
     }()
@@ -272,8 +270,6 @@ func ShowContactsWindow(app fyne.App, handler *xmpp.XMPPHandler) {
 }
 
 
-
-
 func ShowUserSettingsWindow(app fyne.App, handler *xmpp.XMPPHandler) {
     settingsWindow := app.NewWindow("User Settings")
 
@@ -284,9 +280,9 @@ func ShowUserSettingsWindow(app fyne.App, handler *xmpp.XMPPHandler) {
             dialog.ShowError(err, settingsWindow)
         } else {
             log.Println("Logged out successfully")
-			CloseAllWindows(app)
+            CloseAllWindows(app)
             settingsWindow.Close()
-			app.Quit()
+            app.Quit()
         }
     })
 
@@ -297,11 +293,10 @@ func ShowUserSettingsWindow(app fyne.App, handler *xmpp.XMPPHandler) {
                 if err != nil {
                     log.Printf("Account removal failed: %v", err)
                     dialog.ShowError(err, settingsWindow)
-					app.Quit()
+                    app.Quit()
                 } else {
                     log.Println("Account removed successfully")
                     settingsWindow.Close()
-                    // Optionally close all windows or return to the login window
                     app.Quit()
                 }
             }
@@ -310,8 +305,14 @@ func ShowUserSettingsWindow(app fyne.App, handler *xmpp.XMPPHandler) {
         confirmDialog.Show()
     })
 
+    // Create a button to change the presence
+    changePresenceButton := widget.NewButton("Change Presence", func() {
+        ChangePresenceWindow(app, handler)
+    })
+
     settingsWindow.SetContent(container.NewVBox(
         widget.NewLabel("User Settings"),
+        changePresenceButton,
         logoutButton,
         deleteAccountButton,
     ))
@@ -319,6 +320,7 @@ func ShowUserSettingsWindow(app fyne.App, handler *xmpp.XMPPHandler) {
     settingsWindow.Resize(fyne.NewSize(300, 200))
     settingsWindow.Show()
 }
+
 
 
 func CloseAllWindows(app fyne.App) {
@@ -379,4 +381,69 @@ func ShowCreateAccountDialog(app fyne.App, parent fyne.Window) {
     dialogWindow.Show()
 }
 
+
+func ChangePresenceWindow(app fyne.App, handler *xmpp.XMPPHandler) {
+    presenceWindow := app.NewWindow("Change Presence")
+
+    // Create a drop-down for the presence type
+    presenceTypes := []string{"chat", "away", "dnd", "xa"}
+    presenceTypeSelect := widget.NewSelect(presenceTypes, func(value string) {
+        log.Println("Selected presence type:", value)
+    })
+    presenceTypeSelect.SetSelected("chat") // Default selection
+
+    // Create an entry for the custom status message
+    statusEntry := widget.NewEntry()
+    statusEntry.SetPlaceHolder("Enter your status message")
+
+    // Create a button to apply the changes
+    applyButton := widget.NewButton("Apply", func() {
+        selectedType := presenceTypeSelect.Selected
+        statusMessage := statusEntry.Text
+
+        // Send the presence update to the XMPP server
+        err := handler.SendPresence(selectedType, statusMessage)
+        if err != nil {
+            log.Printf("Failed to change presence: %v", err)
+            dialog.ShowError(err, presenceWindow)
+        } else {
+            log.Printf("Presence changed to: %s - %s", selectedType, statusMessage)
+            presenceWindow.Close() // Close the window after applying the changes
+        }
+    })
+
+    presenceWindow.SetContent(container.NewVBox(
+        widget.NewLabel("Change Your Presence"),
+        presenceTypeSelect,
+        statusEntry,
+        applyButton,
+    ))
+
+    presenceWindow.Resize(fyne.NewSize(300, 200))
+    presenceWindow.Show()
+}
+
+
+func ShowContactDetailsWindow(app fyne.App, handler *xmpp.XMPPHandler, recipient xmppfunctions.Contact) {
+    detailsWindow := app.NewWindow("Contact Details - " + recipient.JID)
+
+
+
+    // if contact == nil {
+    //     detailsWindow.SetContent(widget.NewLabel("Contact details not found."))
+    // } else {
+        details := container.NewVBox(
+            widget.NewLabel("JID: " + recipient.JID),
+            widget.NewLabel("Name: " + recipient.Name),
+            widget.NewLabel("Subscription: " + recipient.Subscription),
+            widget.NewLabel("Status: " + recipient.Status),
+            widget.NewLabel("Presence: " + recipient.Presence),
+        )
+
+        detailsWindow.SetContent(details)
+    // }
+
+    detailsWindow.Resize(fyne.NewSize(300, 200))
+    detailsWindow.Show()
+}
 

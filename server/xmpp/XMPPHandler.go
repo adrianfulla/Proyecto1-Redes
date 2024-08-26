@@ -8,6 +8,7 @@ import (
 
 	"fyne.io/fyne/v2"
     "fyne.io/fyne/v2/widget"
+    "fyne.io/fyne/v2/dialog"
 )
 
 type XMPPHandler struct {
@@ -19,6 +20,7 @@ type XMPPHandler struct {
     MessageChan chan *Message
     MessageQueue map[string][]*Message
     PresenceStack map[string]*Presence
+    VCardStack map[string]*IQ
 }
 type ChatWindow struct {
     Window       fyne.Window
@@ -45,6 +47,7 @@ func NewXMPPHandler(domain, port, username, password string) (*XMPPHandler, erro
         MessageChan:  make(chan *Message, 100),
         MessageQueue: make(map[string][]*Message),
         PresenceStack: make(map[string]*Presence),
+        VCardStack: map[string]*IQ{},
     }
 
     conn, err := NewXMPPConnection(domain, port, false)
@@ -142,7 +145,9 @@ func (h *XMPPHandler) HandleIncomingStanzas() error {
 					log.Printf("Failed to parse IQ: %v", err)
 					continue
 				}
-				h.handleIQ(&iq)
+                h.handleIQ(&iq)
+                
+				
 
 			default:
 				log.Printf("Unhandled stanza type: %s", se.Name.Local)
@@ -154,10 +159,77 @@ func (h *XMPPHandler) HandleIncomingStanzas() error {
 func (h *XMPPHandler) handlePresence(pres *Presence) {
 	jid := strings.Split(pres.From, "/")[0]
     log.Printf("Presence from %s: %s|%s|%s", jid, pres.Status, pres.Show, pres.Type)
-	
-    h.PresenceStack[jid] = pres
+
+    switch pres.Type{
+    case "subscribe":
+        fyne.CurrentApp().SendNotification(&fyne.Notification{
+            Title:   "Subscription Request",
+            Content: fmt.Sprintf("%s wants to subscribe to your presence", pres.From),
+        })
+        h.PromptSubscriptionRequest(pres.From)
     
+    case "subscribed":
+        // Your subscription request was accepted
+        fyne.CurrentApp().SendNotification(&fyne.Notification{
+            Title:   "Subscription Accepted",
+            Content: fmt.Sprintf("%s accepted your subscription request", pres.From),
+        })
+    case "unsubscribe":
+        // Someone wants to unsubscribe from your presence
+        fyne.CurrentApp().SendNotification(&fyne.Notification{
+            Title:   "Unsubscription Request",
+            Content: fmt.Sprintf("%s wants to unsubscribe from your presence", pres.From),
+        })
+    case "unsubscribed":
+        // Your subscription request was rejected or someone unsubscribed
+        fyne.CurrentApp().SendNotification(&fyne.Notification{
+            Title:   "Subscription Rejected",
+            Content: fmt.Sprintf("%s has rejected your subscription or unsubscribed", pres.From),
+        })
+    default:
+        if pres.Type != "error"{
+            h.PresenceStack[jid] = pres
+        }
+    }
 }
+
+func (h *XMPPHandler) PromptSubscriptionRequest(from string) {
+    confirmDialog := dialog.NewConfirm("Subscription Request", fmt.Sprintf("%s wants to subscribe to your presence. Do you accept?", from), func(confirm bool) {
+        if confirm {
+            // Send 'subscribed' presence to accept the subscription
+            presence := NewPresence(from, "subscribed", "", "", 0)
+            presenceXML, err := presence.ToXML()
+            if err != nil {
+                log.Printf("Failed to marshal subscription acceptance: %v", err)
+                return
+            }
+            _, err = h.Conn.Conn.Write([]byte(presenceXML))
+            if err != nil {
+                log.Printf("Failed to send subscription acceptance: %v", err)
+            } else {
+                log.Printf("Subscription accepted for %s", from)
+            }
+        } else {
+            // Send 'unsubscribed' presence to reject the subscription
+            presence := NewPresence(from, "unsubscribed", "", "", 0)
+            presenceXML, err := presence.ToXML()
+            if err != nil {
+                log.Printf("Failed to marshal subscription rejection: %v", err)
+                return
+            }
+            _, err = h.Conn.Conn.Write([]byte(presenceXML))
+            if err != nil {
+                log.Printf("Failed to send subscription rejection: %v", err)
+            } else {
+                log.Printf("Subscription rejected for %s", from)
+            }
+        }
+    }, fyne.CurrentApp().Driver().AllWindows()[0]) // Assuming you want to show the dialog on the main window
+
+    confirmDialog.SetDismissText("Ignore")
+    confirmDialog.Show()
+}
+
 
 func (h *XMPPHandler) handleIQ(iq *IQ) {
     // Check if the IQ has a known type but no specific query body
@@ -189,6 +261,16 @@ func (h *XMPPHandler) handleIQ(iq *IQ) {
                 log.Printf("Unhandled type in IQ query: %T", iq.Query)
             }
         }
+    } else if iq.Type == "result"{
+        log.Printf("Received result IQ from %s: %s|%s|%s", iq.From, iq.To, iq.Type, iq.Query)
+        switch iq.ID  {
+        case "v1":
+            h.VCardStack[iq.From] = iq
+        
+        default: 
+        log.Printf("Unhandled type in IQ ID: %T", iq.ID)
+        }
+        
     }
 }
 

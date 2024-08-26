@@ -26,6 +26,13 @@ type IQ struct {
     Query   interface{} `xml:",omitempty"`
 }
 
+type IQItem struct {
+    JID          string `xml:"jid,attr"`
+    Name         string `xml:"name,attr,omitempty"`
+    Subscription string `xml:"subscription,attr"`
+}
+
+
 func NewIQ(iqType, iqID string) *IQ {
     return &IQ{
         Type: iqType,
@@ -132,7 +139,7 @@ func BindResource(conn *XMPPConnection) error {
     // Resource binding request
     iqStanza := `<iq type="set" id="bind_1">
                     <bind xmlns="urn:ietf:params:xml:ns:xmpp-bind">
-                        <resource>example</resource>
+                        <resource>mainbinding</resource>
                     </bind>
                  </iq>`
 

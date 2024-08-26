@@ -51,6 +51,10 @@ func (p *Presence) IsAvailable() bool {
     return p.Type == "" || p.Type == "available"
 }
 
+func (p *Presence) HasStatus() bool {
+    return p.Status != ""
+}
+
 // IsUnavailable checks if the presence type is "unavailable".
 func (p *Presence) IsUnavailable() bool {
     return p.Type == "unavailable"

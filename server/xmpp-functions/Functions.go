@@ -1,12 +1,15 @@
 package xmppfunctions
 
-import(
-	"github.com/adrianfulla/Proyecto1-Redes/server/xmpp"
+import (
+	"encoding/xml"
 	"errors"
 	"fmt"
-	"strings"
-    "encoding/xml"
 	"log"
+	"strings"
+    // "time"
+	"sync"
+
+	"github.com/adrianfulla/Proyecto1-Redes/server/xmpp"
 )
 
 // CreateUser creates a new account on the XMPP server.
@@ -86,81 +89,47 @@ func RemoveAccount(handler *xmpp.XMPPHandler) error {
 }
 
 // GetContacts retrieves the user's roster (contact list).
-// func GetContacts(handler *xmpp.XMPPHandler) ([]Contact, error) {
-//     iqID := "getRoster1"
-//     rosterRequest := `<iq type="get" id="` + iqID + `"><query xmlns="jabber:iq:roster"/></iq>`
-
-//     _, err := handler.Conn.Conn.Write([]byte(rosterRequest))
-//     if err != nil {
-//         return nil, fmt.Errorf("failed to send roster request: %v", err)
-//     }
-
-//     // Wait for the response
-//     buffer := make([]byte, 4096)
-//     n, err := handler.Conn.Conn.Read(buffer)
-//     if err != nil {
-//         return nil, fmt.Errorf("error reading roster response: %v", err)
-//     }
-
-//     response := string(buffer[:n])
-// 	fmt.Printf("Obtained response: %s\n", response)
-
-//     var iq IQ
-//     err = xml.Unmarshal([]byte(response) ,&iq)
-//     if err != nil {
-//         return nil, fmt.Errorf("failed parsing roster response: %v", err)
-//     }
-//     contacts := []Contact{}
-//     for _, item := range iq.Query.Items {
-//         contacts = append(contacts, Contact{
-//             JID: item.JID,
-//             Name: item.Name,
-//             Subscription: item.Subscription,
-//         })
-//     }
-
-//     return contacts, nil
-// }
-
 func GetContacts(handler *xmpp.XMPPHandler) ([]Contact, error) {
     iqID := "getRoster1"
     rosterRequest := `<iq type="get" id="` + iqID + `"><query xmlns="jabber:iq:roster"/></iq>`
+
+    var iq IQ
+
 
     _, err := handler.Conn.Conn.Write([]byte(rosterRequest))
     if err != nil {
         return nil, fmt.Errorf("failed to send roster request: %v", err)
     }
 
-    // Wait for the response
     buffer := make([]byte, 4096)
     n, err := handler.Conn.Conn.Read(buffer)
     if err != nil {
         return nil, fmt.Errorf("error reading roster response: %v", err)
     }
-
     response := string(buffer[:n])
     fmt.Printf("Obtained response: %s\n", response)
-
-    var iq IQ
     err = xml.Unmarshal([]byte(response), &iq)
-    if err != nil {
-        return nil, fmt.Errorf("failed parsing roster response: %v", err)
-    }
 
     contacts := []Contact{}
+    var wg sync.WaitGroup
+
     for _, item := range iq.Query.Items {
+        wg.Add(1)
         contact := Contact{
             JID:          item.JID,
             Name:         item.Name,
             Subscription: item.Subscription,
             Presence:     "unavailable", // Default to unavailable
+            Status:       "Offline",
         }
         log.Printf(contact.JID)
         // Check if there is a presence for this contact in the PresenceStack
         if presence, found := handler.PresenceStack[contact.JID]; found {
             
             contact.Presence = presence.Show
-            if (presence.IsAvailable()) {
+            if (presence.HasStatus()){
+                contact.Status = presence.Status
+            }else if (presence.IsAvailable()) {
                 contact.Status = "Online"
             } else{
                 contact.Status = "Offline"
@@ -173,6 +142,23 @@ func GetContacts(handler *xmpp.XMPPHandler) ([]Contact, error) {
     return contacts, nil
 }
 
+func CheckContacts(handler *xmpp.XMPPHandler, contacts []Contact) ([]Contact){
+    newContacts := []Contact{}
+    for _,contact := range contacts{
+        if presence, found := handler.PresenceStack[contact.JID]; found {
+            contact.Presence = presence.Show
+            if (presence.HasStatus()){
+                contact.Status = presence.Status
+            }else if (presence.IsAvailable()) {
+                contact.Status = "Online"
+            } else{
+                contact.Status = "Offline"
+            }
+        }
+        newContacts = append(newContacts, contact)
+    }
+    return newContacts
+}
 
 // AddContact adds a new contact to the user's roster.
 func AddContact(handler *xmpp.XMPPHandler, jid string) error {
@@ -193,8 +179,48 @@ func AddContact(handler *xmpp.XMPPHandler, jid string) error {
 
 // GetContactDetails retrieves details about a specific contact.
 func GetContactDetails(handler *xmpp.XMPPHandler, contactJID string) (ContactDetails, error) {
-    // You would likely need to query vCards or similar
-    return ContactDetails{}, nil
+    iqID := "v1"
+    vCardRequest := fmt.Sprintf(`<iq from='%s' type='get' id='%s'><vCard xmlns='vcard-temp'/></iq>`, contactJID, iqID)
+
+    // Send the vCard request
+    fmt.Println(vCardRequest)
+    _, err := handler.Conn.Conn.Write([]byte(vCardRequest))
+    if err != nil {
+        return ContactDetails{}, fmt.Errorf("failed to send vCard request: %v", err)
+    }
+
+    // Wait for the response
+    // buffer := make([]byte, 4096)
+    // n, err := handler.Conn.Conn.Read(buffer)
+    // if err != nil {
+    //     return ContactDetails{}, fmt.Errorf("error reading vCard response: %v", err)
+    // }
+
+    // response 
+    // fmt.Printf("vCard Response: %s\n", response)
+
+    // // Parse the vCard response
+    // var iq xmpp.IQ
+    // err = xml.Unmarshal([]byte(response), &iq)
+    // if err != nil {
+    //     return ContactDetails{}, fmt.Errorf("failed to parse vCard response: %v", err)
+    // }
+
+    // Extract the vCard info from the IQ response
+    var vCard vCardQuery
+    // err = xml.Unmarshal(iq.Query, &vCard)
+    // if err != nil {
+    //     return ContactDetails{}, fmt.Errorf("failed to parse vCard query: %v", err)
+    // }
+
+    // Build the ContactDetails struct
+    details := ContactDetails{
+        JID:       contactJID,
+        Name:      vCard.FullName,
+        VCardInfo: fmt.Sprintf("Nickname: %s\nEmail: %s", vCard.Nickname, vCard.Email),
+    }
+
+    return details, nil
 }
 
 // SendMessage sends a one-to-one message to a specific user.
@@ -274,3 +300,10 @@ type IQ struct {
 	Query   RosterQuery `xml:"query"`
 }
 
+
+type vCardQuery struct {
+    XMLName xml.Name `xml:"vCard"`
+    FullName string  `xml:"FN,omitempty"`
+    Nickname string  `xml:"NICKNAME,omitempty"`
+    Email    string  `xml:"EMAIL>USERID,omitempty"`
+}

@@ -81,8 +81,17 @@ func (a *AuthRequest) ToXML() (string, error) {
 
 // Authenticate performs SASL PLAIN authentication with the XMPP server.
 func Authenticate(conn *XMPPConnection, username, password string) error {
+    StartTLS_trys := 0
+    var err error
     // Perform STARTTLS if available
-    if err := StartTLS(conn); err != nil {
+    for StartTLS_trys < 5{
+            err = StartTLS(conn)
+            if err == nil{
+                break
+            }
+            StartTLS_trys ++
+    } 
+    if err != nil{
         return fmt.Errorf("STARTTLS failed: %v", err)
     }
 
