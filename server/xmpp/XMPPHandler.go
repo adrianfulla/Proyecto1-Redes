@@ -60,11 +60,6 @@ func NewXMPPHandler(domain, port, username, password string) (*XMPPHandler, erro
         return nil, err
     }
 
-    // If the user does not exist, create it
-    // if err := CreateUser(handler.Conn, username, password); err != nil {
-    //     log.Println("User creation failed or user already exists, proceeding with login...")
-    // }
-
     // Authenticate
     if err := Authenticate(handler.Conn, username, password); err != nil {
         return nil, err

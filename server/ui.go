@@ -16,10 +16,6 @@ import (
 	xmppfunctions "github.com/adrianfulla/Proyecto1-Redes/server/xmpp-functions"
 )
 
-func main() {
-    ShowLoginWindow()
-}
-
 func ShowLoginWindow() {
     myApp := app.New()
     myWindow := myApp.NewWindow("XMPP Chat Client")
