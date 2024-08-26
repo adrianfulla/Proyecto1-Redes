@@ -11,7 +11,7 @@
 - Aplicar os conhecimentos adquiridos em programação Web e móvel.
 
 ## Objetivos Alcançados
--Desenvolvido um cliente de chat baseado em XMPP inteiramente na linguagem de programação Go.
+- Desenvolvido um cliente de chat baseado em XMPP inteiramente na linguagem de programação Go.
 - O cliente inclui as seguintes funcionalidades:
     - Registrar uma nova conta no servidor.
     - Fazer login com uma conta.
