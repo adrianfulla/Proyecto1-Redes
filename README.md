@@ -1,4 +1,7 @@
 # Proyecto 1 Redes - Uso de un protocolo existente
+[![es](https://img.shields.io/badge/lang-es-yellow.svg)](https://github.com/adrianfulla/Proyecto1-Redes/blob/main/README.md)
+[![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.com/adrianfulla/Proyecto1-Redes/blob/main/README.en.md)
+
 ## Objetivos del proyecto
 - Implementar un protocolo en base a los estándares.
 - Comprender el propósito del protocolo XMPP.
