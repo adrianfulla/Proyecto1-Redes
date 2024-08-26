@@ -1,6 +1,8 @@
 # Project 1 Networks - Using an Existing Protocol
 [![es](https://img.shields.io/badge/lang-es-yellow.svg)](https://github.com/adrianfulla/Proyecto1-Redes/blob/main/README.md)
 [![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.com/adrianfulla/Proyecto1-Redes/blob/main/README.en.md)
+[![fr](https://img.shields.io/badge/lang-fr-gr.svg)](https://github.com/adrianfulla/Proyecto1-Redes/blob/main/README.fr.md)
+[![pt](https://img.shields.io/badge/lang-pt-blue.svg)](https://github.com/adrianfulla/Proyecto1-Redes/blob/main/README.pt.md)
 
 ## Project Objectives
 - Implement a protocol based on standards.
